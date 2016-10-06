@@ -1,6 +1,7 @@
 import React from 'react';
 import FalcorController from 'lib/falcor/FalcorController';
 import _ from 'lodash';
+import { formatDate } from 'lib/utilities';
 
 export default class EditorMainIssueController extends FalcorController {
   constructor(props) {
@@ -8,17 +9,20 @@ export default class EditorMainIssueController extends FalcorController {
     this.publishIssue = this.publishIssue.bind(this);
     this.unpublishIssue = this.unpublishIssue.bind(this);
     this.safeSetState({
-      publishing: false,
+      changed: false,
+      saving: false,
     });
   }
   static getFalcorPathSets(params) {
-    return ['issuesByNumber', params.issueNumber, 'published_at'];
+    return ['issuesByNumber', params.issueNumber, ['name', 'issueNumber', 'published_at']];
   }
 
   publishIssue() {
     const callback = () => {
-      this.safeSetState({publishing: false});
-      // window.alert("Issue successfully published");
+      this.safeSetState({changed: false});
+      setTimeout(() => {
+        this.safeSetState({saving: false});
+      }, 1000);
     }
     const falcorPathSets = [
       ['issuesByNumber', this.props.params.issueNumber, 'categories', {length: 20}, 'articles', {length: 50}, ['title', 'teaser', 'category']],
@@ -65,7 +69,10 @@ export default class EditorMainIssueController extends FalcorController {
           return;
         }
         // The issue is valid, we can publish it
-        this.safeSetState({publishing: true});
+        this.safeSetState({
+          changed: true,
+          saving: true,
+        });
         this.falcorCall(['issuesByNumber', issueNumber, 'publishIssue'],
           [issue.id], undefined, undefined, undefined, callback);
       }
@@ -100,38 +107,107 @@ export default class EditorMainIssueController extends FalcorController {
       if (!this.state.data) {
         return <p>This issue does not exist</p>;
       }
-      const published = this.state.data.issuesByNumber[this.props.params.issueNumber].published_at;
+      const issue = this.state.data.issuesByNumber[this.props.params.issueNumber];
+
+      let changedStateMessage;
+      const changedStateStyle = {};
+      if (!this.state.changed) {
+        if (!this.state.saving) {
+          changedStateMessage = "No Changes";
+        }
+        else {
+          changedStateMessage = "Saved";
+          changedStateStyle.color = "green";
+        }
+      }
+      else {
+        if (!this.state.saving) {
+          changedStateMessage = "Unsaved Changes";
+          changedStateStyle.color = "red";
+        }
+        else {
+          changedStateMessage = "Saving"
+          changedStateStyle.color = "#65e765";
+        }
+      }
       return (
         <div>
+          <h2 style={changedStateStyle}>{changedStateMessage}</h2>
+          <h3>{issue.name}</h3>
           {
-            published
-            ? <h3>Already Published</h3>
-            : null
+            issue.published_at
+            ? <h4>Already Published</h4>
+            : <h4>Not Published</h4>
           }
-          <button
-            type="button"
-            className="pure-button"
-            onClick={this.publishIssue}
-            style={{
-              width: "15em",
-              height: "10em",
-              backgroundColor: "green",
-            }}
-          >Publish Issue</button>
-          <button
-            type="button"
-            className="pure-button"
-            onClick={this.unpublishIssue}
-            style={{
-              width: "15em",
-              height: "10em",
-              backgroundColor: "red",
-            }}
-          >Unpublish Issue</button>
-          {this.state.publishing
-          ? <h4>Publishing...</h4>
-          : null
-          }
+          <div>
+            <button
+              type="button"
+              className="pure-button"
+              onClick={this.publishIssue}
+              style={{
+                width: "15em",
+                height: "10em",
+                backgroundColor: "green",
+              }}
+            >Publish Issue</button>
+            <button
+              type="button"
+              className="pure-button"
+              onClick={this.unpublishIssue}
+              style={{
+                width: "15em",
+                height: "10em",
+                backgroundColor: "red",
+              }}
+            >Unpublish Issue</button>
+          </div>
+          <h4>Change Issue Data</h4>
+          <form
+            className="pure-form pure-form-stacked"
+            onSubmit={this.saveChanges}
+            onChange={this.handleChanges}
+          >
+            Name:
+            <input
+              type="text"
+              name="name"
+              defaultValue={issue.name}
+              placeholder="Input Name"
+              disabled={this.saving}
+            />
+            Issue Number:
+            <input
+              type="text"
+              name="name"
+              defaultValue={issue.issueNumber}
+              placeholder="Input Issue Number"
+              disabled={this.saving}
+            />
+            Publish Date: <br />
+            Please input in format: yyyy-mm-dd
+            {
+              issue.published_at ?
+              <input
+                type="text"
+                name="name"
+                defaultValue={formatDate(new Date(issue.published_at))}
+                placeholder="Input date"
+                disabled={this.saving || !issue.published_at}
+              />
+              :
+              <input
+                type="text"
+                value="Issue is unpublished"
+                disabled
+              />
+            }
+            <input
+              type="submit"
+              className="pure-button pure-button-primary"
+              style={{marginTop: "5px"}}
+              value="Save Changes"
+            />
+          </form>
         </div>
       );
     }
