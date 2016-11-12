@@ -1,4 +1,5 @@
 import knex from 'knex';
+import stable from 'stable';
 import databaseConfig from 'lib/../../config/database.config';
 import { mapGhostNames } from 'lib/falcor/FalcorRouter';
 import _ from 'lodash';
@@ -7,6 +8,10 @@ import { formatDate, formatDateTime } from 'lib/utilities';
 const knexConnectionObject = {
   client: 'mysql',
   connection: databaseConfig,
+  pool: {
+    min: 10,
+    max: 50,
+  },
 };
 
 const database = knex(knexConnectionObject);
@@ -16,7 +21,7 @@ export default class db {
     // parameters are both expected to be arrays
     // the first one with author slugs to fetch
     // and the other one the columns to retrieve from the authors
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       // So the Falcor Router knows which author we're talking about
       if (!columns.some((col) => {return col === "slug"})) {
@@ -45,7 +50,7 @@ export default class db {
     // The function returns an object with author slugs
     // as keys and values being arrays of article slugs
     // sorted by most recent article first.
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       database.select('posts.slug as post_slug', 'authors.slug as author_slug')
       .from('authors')
@@ -81,7 +86,7 @@ export default class db {
     // parameters are both expected to be arrays
     // first one with page slugs to fetch
     // second one which columns to fetch from the db
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       // So the Falcor Router knows which author we're talking about
       if (columns.find((col) => {return col === "slug"}) === undefined) {
@@ -108,7 +113,7 @@ export default class db {
     // parameters are both expected to be arrays
     // first one with article slugs to fetch
     // second one which columns to fetch from the posts_meta table
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       // we join with posts table to find slug, and always return slug
       columns = columns.map((col) => {
@@ -146,19 +151,38 @@ export default class db {
 
   articleIssueQuery(slugs) {
     // the parameter is the slugs the issueNumber is being requested from
-    return new Promise((resolve, reject) => {
-      // const database = knex(knexConnectionObject);
+    return new Promise((resolve) => {
       database.select('issue_order as issueNumber', 'posts.slug as slug')
       .from('posts')
       .innerJoin('issues_posts_order', 'issues_posts_order.post_id', '=', 'posts.id')
       .innerJoin('issues', 'issues.id', '=', 'issues_posts_order.issue_id')
       .whereIn('posts.slug', slugs)
+      .orderBy('posts.slug')
       .then((rows) => {
-        // database.destroy();
+        // We always want to return the first issue the article was published in
+        // and no more (currently we don't support falcor fetching all issues an
+        // article was published in, if needed that's not a problem though)
+        const toDelete = [];
+        let lastRow = null;
+        rows.forEach((row, index) => {
+          if (lastRow && row.slug === lastRow.slug) {
+            if (row.issueNumber < lastRow.issueNumber) {
+              toDelete.push(index-1);
+            }
+            else if (row.issueNumber > lastRow.issueNumber) {
+              toDelete.push(index);
+            }
+            else {
+              throw new Error("Data corrupted, article: " + row.slug + " occurs twice in issue " + lastRow.issueNumber.toString());
+            }
+          }
+        });
+        toDelete.reverse().forEach((index) => {
+          rows.splice(index, 1);
+        });
         resolve(rows);
       })
       .catch((e) => {
-        // database.destroy();
         throw new Error(e);
       })
     });
@@ -169,7 +193,7 @@ export default class db {
     // of which to fetch the authors of.
     // The function returns an object with article slugs
     // as keys and values being arrays of author slugs.
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       database.select('posts.slug as post_slug', 'authors.slug as author_slug')
       .from('authors')
@@ -203,18 +227,15 @@ export default class db {
 
   latestIssueQuery() {
     // returns the newest issue number
-    return new Promise((resolve, reject) => {
-      // const database = knex(knexConnectionObject);
+    return new Promise((resolve) => {
       database.select('issue_order')
       .from('issues')
       .orderBy('issue_order', 'desc')
       .whereNotNull('published_at').limit(1)
       .then((rows) => {
-        // database.destroy();
         resolve(rows);
       })
       .catch((e) => {
-        // database.destroy();
         throw new Error(e);
       })
     })
@@ -223,7 +244,7 @@ export default class db {
   categoryQuery(slugs, columns) {
     // slugs parameter is an array of category slugs
     // to fetch the name of
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       if (columns.find((col) => {return col==="slug"}) === undefined) {
         // Copy so as to not change pathSet
@@ -233,11 +254,9 @@ export default class db {
       .from('categories')
       .whereIn('slug', slugs)
       .then((rows) => {
-        // database.destroy();
         resolve(rows);
       })
       .catch((e) => {
-        // database.destroy();
         throw new Error(e);
       });
     });
@@ -246,7 +265,7 @@ export default class db {
   categoryArrayQuery() {
     // fetch all the categories in the database and return
     // an array of slugs. It is important the order is deterministic though
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       database.select('slug')
       .from('categories')
       .orderBy('id', 'desc')
@@ -265,7 +284,7 @@ export default class db {
     // of which to fetch the articles from
     // Will return object where keys are category slugs
     // and values are arrays of articles from newest to oldest
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       database.select('posts.slug as post_slug', 'categories.slug as cat_slug')
       .from('posts')
@@ -299,7 +318,7 @@ export default class db {
 
   featuredArticleQuery(issueNumbers) {
     // Get the featured articles from all the issueNumbers
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       database.select('posts.slug', 'issue_order')
       .from('posts')
@@ -319,7 +338,7 @@ export default class db {
 
   editorPickQuery(issueNumbers) {
     // Get the editor's picks from all the issueNumbers
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       database.select('posts.slug', 'issue_order')
       .from('posts')
@@ -348,7 +367,7 @@ export default class db {
 
   issueCategoryQuery(issueNumbers, fields) {
     // get the categories from each issueNumber
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       // rewrite the columns to proper format
       let columns = fields.map((col) => {
@@ -399,7 +418,7 @@ export default class db {
 
   issueCategoryArticleQuery(issueNumbers) {
     // get the categories from each issueNumber
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       database.select('issue_order', 'posts.slug', 'posts_order', 'posts_meta.category_id')
       .from('issues')
@@ -478,7 +497,7 @@ export default class db {
   }
 
   issueQuery(issueNumbers, columns) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // const database = knex(knexConnectionObject);
       const hasIssueNumber = columns.find((col) => {col === "issue_order"}) !== undefined;
       if (!hasIssueNumber) {
@@ -500,49 +519,125 @@ export default class db {
     });
   }
 
-  // THIS IS TEMPORARY
   trendingQuery() {
-    return new Promise((resolve, reject) => {
-      database.select('slug')
-      .from('posts')
-      .innerJoin('posts_meta', 'posts_meta.id', '=', 'posts.id')
-      .whereNotNull('gazelle_published_at')
-      .orderBy('gazelle_published_at', 'desc')
-      .limit(10)
-      .then((rows) => {
-        resolve(rows);
+    return new Promise((resolve) => {
+      database.select('id')
+      .from('issues')
+      .orderBy('issue_order', 'desc')
+      .whereNotNull('published_at').limit(1)
+      .then((issueRows) => {
+        const latestIssueId = issueRows[0].id;
+
+        database.select('slug')
+        .from('posts')
+        .innerJoin('posts_meta', 'posts_meta.id', '=', 'posts.id')
+        .innerJoin('issues_posts_order', 'issues_posts_order.post_id', '=', 'posts.id')
+        .whereNotNull('gazelle_published_at')
+        .where('issue_id', '=', latestIssueId)
+        .orderBy('views', 'DESC')
+        .limit(10)
+        .then((postRows) => {
+          // At the moment if there were less than 5-7 articles in the issue
+          // there wouldn't be enough to show, it is very easy to implement that it
+          // just continues with the second-newest issue, it depends on what editors want
+          resolve(postRows);
+        })
+        .catch((e) => {
+          throw new Error(e);
+        });
       })
-      .catch((e) => {
-        throw new Error(e);
+    });
+  }
+
+  relatedArticleQuery(slugs) {
+    return new Promise((resolve) => {
+      database.select('id')
+      .from('issues')
+      .orderBy('issue_order', 'desc')
+      .whereNotNull('published_at').limit(1)
+      .then((issueRows) => {
+        const latestIssueId = issueRows[0].id;
+        database.select('tag_id', 'posts.slug',
+          'issues_posts_order.issue_id', 'category_id')
+        .from('posts')
+        .innerJoin('posts_meta', 'posts.id', '=', 'posts_meta.id')
+        .leftJoin('posts_tags', 'posts_tags.post_id', '=', 'posts.id')
+        .innerJoin('issues_posts_order', 'issues_posts_order.post_id', '=', 'posts.id')
+        .whereNotNull('gazelle_published_at')
+        .where(function() {
+          this.where('issues_posts_order.issue_id', '=', latestIssueId).orWhereIn('slug', slugs)
+        }).then((postRows) => {
+          const posts = {};
+          postRows.forEach((post) => {
+            const slug = post.slug;
+            if (!posts[slug]) {
+              posts[slug] = post;
+              posts[slug].tags = [];
+            }
+            // We could have several instances of the same article if it
+            // exists in different issues, but it would only be relevant for the
+            // target articles and therefore it's not a problem as we never iterate
+            // through the target articles' tags.
+            if (post.tag_id) {
+              posts[slug].tags.push(post.tag_id);
+            }
+          });
+
+          const results = {};
+          slugs.forEach((slug) => {
+            const post = posts[slug];
+            if (post === undefined) {
+              throw new Error("Article couldn't be found in related articles query");
+            }
+
+            // update amount of tags in common with current post
+            // and whether the category is the same
+            _.forEach(posts, (currentPost) => {
+              let cnt = 0;
+              currentPost.tags.forEach((currentTag) => {
+                if (post.tags.find((postTag) => {return postTag === currentTag})) {
+                  cnt++;
+                }
+              });
+              currentPost.tagsInCommon = cnt;
+              currentPost.categoryInCommon = currentPost.category_id === post.category_id;
+            });
+
+            const ranking = Object.keys(posts).filter((currentSlug) => {
+              return posts[currentSlug].issue_id === latestIssueId && currentSlug !== post.slug;
+            });
+            if (ranking.length < 3) {
+              throw new Error("Less than three posts to qualify as related posts");
+            }
+            stable.inplace(ranking, (slugA, slugB) => {
+              const a = posts[slugA];
+              const b = posts[slugB];
+              if (a.tagsInCommon !== b.tagsInCommon) {
+                // This puts a before b if a has more tags in common
+                return b.tagsInCommon - a.tagsInCommon;
+              }
+              if (a.categoryInCommon !== b.categoryInCommon) {
+                if (a.categoryInCommon) {
+                  return -1;
+                }
+                return 1;
+              }
+              return 0;
+            });
+            // since the sort is stable we know we should always get the
+            // same values, also if there are no posts with related tags
+            // or categories. It should still be deterministic which article
+            // is the first unrelated one in the order
+            results[slug] = ranking.slice(0, 3);
+          });
+          resolve(results);
+        });
       });
     });
   }
 
-  // THIS IS TEMPORARY
-  relatedArticleQuery(slugs) {
-    return new Promise((resolve, reject) => {
-      database.select('slug')
-      .from('posts')
-      .innerJoin('posts_meta', 'posts_meta.id', '=', 'posts.id')
-      .whereNotNull('gazelle_published_at')
-      .orderBy('gazelle_published_at', 'desc')
-      .limit(3)
-      .then((rows) => {
-        const results = {};
-        const relatedArticlesArray = rows.map((row) => {return row.slug});
-        slugs.forEach((slug) => {
-          results[slug] = relatedArticlesArray.slice();
-        });
-        resolve(results);
-      })
-      .catch((e) => {
-        throw new Error(e);
-      });
-    })
-  }
-
   searchAuthorsQuery(queries, min, max) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       let queriesReturned = 0;
       const results = {};
       queries.forEach((query) => {
@@ -562,7 +657,7 @@ export default class db {
   }
 
   searchPostsQuery(queries, min, max) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       let queriesReturned = 0;
       const results = {};
       queries.forEach((query) => {
@@ -584,7 +679,7 @@ export default class db {
   }
 
   updateAuthors(articleId, newAuthors) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       database('authors_posts').where('post_id', '=', articleId).del()
       .then(() => {
         const insertArray = _.map(newAuthors, (authorId) => {
@@ -607,7 +702,7 @@ export default class db {
   }
 
   updateGhostFields(jsonGraphArg) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const updatesCalled = Object.keys(jsonGraphArg).length;
       let updatesReturned = 0;
       _.forEach(jsonGraphArg, (article, slug) => {
@@ -639,14 +734,16 @@ export default class db {
   }
 
   updatePostMeta(jsonGraphArg) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const updatesCalled = Object.keys(jsonGraphArg).length;
       let updatesReturned = 0;
       const categorySlugsToFind = [];
-      _.forEach(jsonGraphArg, (article) => {
+      const articlesWithChangedCategory = [];
+      _.forEach(jsonGraphArg, (article, slug) => {
         Object.keys(article).forEach((field) => {
           if (field === "category") {
             categorySlugsToFind.push(article[field]);
+            articlesWithChangedCategory.push(slug);
           }
         });
       });
@@ -706,9 +803,140 @@ export default class db {
               }
               updatesReturned++;
               if (updatesReturned >= updatesCalled) {
-                resolve(true);
+                // If categories changed make sure issue data is still consistent
+                if (articlesWithChangedCategory.length > 0) {
+                  database.distinct('issue_id').select()
+                  .from('issues_posts_order')
+                  .innerJoin('posts', 'posts.id', '=', 'issues_posts_order.post_id')
+                  .whereIn('posts.slug', articlesWithChangedCategory)
+                  .then((issueRows) => {
+                    const issuesToUpdate = issueRows.map((row) => {
+                      return row.issue_id;
+                    });
+                    // If the articles were actually published in any issues
+                    if (issuesToUpdate.length > 0) {
+                      this.orderArticlesInIssues(issuesToUpdate).then((flag) => {
+                        if (flag !== true) {
+                          throw new Error("error while reordering articles in issues: " + JSON.stringify(issuesToUpdate));
+                        }
+                        resolve(true);
+                      });
+                    }
+                    else {
+                      // Nothing to fix
+                      resolve(true);
+                    }
+                  });
+                }
               }
-            })
+            });
+          });
+        });
+      });
+    });
+  }
+
+  orderArticlesInIssues(issues) {
+    // Issues is assumed to be an array of integers where
+    // the integers are the ids of issues
+    return new Promise((resolve) => {
+      let updatesCalled = 0;
+      let updatesReturned = 0;
+      issues.forEach((issueId) => {
+        // Get the current categories so we know if we have to add new ones
+        // or delete old ones
+        database.select('category_id', 'categories_order')
+        .from('issues_categories_order')
+        .where('issue_id', '=', issueId)
+        .orderBy('categories_order', 'ASC')
+        .then((categoryRows) => {
+          database.select('issues_posts_order.id as id', 'category_id', 'posts_order')
+          .from('issues_posts_order')
+          .innerJoin('posts_meta', 'posts_meta.id', '=', 'issues_posts_order.post_id')
+          .where('type', '=', 0)
+          .where('issue_id', '=', issueId)
+          .orderBy('category_id', 'ASC')
+          .orderBy('issues_posts_order.posts_order', 'ASC')
+          .then((postRows) => {
+            let lastCategory = null;
+            let order = 0;
+            const toUpdate = [];
+            const newCategories = [];
+            postRows.forEach((row) => {
+              if (lastCategory !== row.category_id) {
+                lastCategory = row.category_id;
+                order = 0;
+                newCategories.push(row.category_id);
+              }
+              if (order !== row.posts_order) {
+                toUpdate.push({
+                  id: row.id,
+                  update: {
+                    posts_order: order,
+                  },
+                });
+              }
+              order++;
+            });
+            updatesCalled += toUpdate.length;
+            toUpdate.forEach((obj) => {
+              database('issues_posts_order')
+              .where('id', '=', obj.id)
+              .update(obj.update)
+              .then(() => {
+                updatesReturned++;
+                if (updatesReturned >= updatesCalled) {
+                  resolve(true);
+                }
+              });
+            });
+            // Check if categories are still consistent
+            const newCategoriesWithOrder = [];
+            let consistent = true;
+            categoryRows.forEach((category) => {
+              if (newCategories.find((cat) => {return cat === category.category_id}) !== undefined) {
+                newCategoriesWithOrder.push(category);
+              }
+              else {
+                consistent = false;
+              }
+            });
+            newCategories.forEach((categoryId) => {
+              if (newCategoriesWithOrder.find((cat) => {return cat.category_id === categoryId}) === undefined) {
+                consistent = false;
+                const foundHole = newCategoriesWithOrder.some((cat, index) => {
+                  if (index !== cat.categories_order) {
+                    newCategoriesWithOrder.splice(index, 0, {category_id: categoryId, categories_order: index});
+                    return true;
+                  }
+                  return false;
+                });
+                if (!foundHole) {
+                  newCategoriesWithOrder.push({category_id: categoryId, categories_order: newCategoriesWithOrder.length});
+                }
+              }
+            });
+            if (!consistent) {
+              newCategoriesWithOrder.forEach((cat, index) => {
+                cat.categories_order = index;
+                cat.issue_id = issueId;
+              });
+              updatesCalled++;
+              // Delete the current categories order and insert the new one
+              database('issues_categories_order').where('issue_id', '=', issueId).del()
+              .then(() => {
+                database('issues_categories_order').insert(newCategoriesWithOrder)
+                .then(() => {
+                  updatesReturned++;
+                  if (updatesReturned >= updatesCalled) {
+                    resolve(true);
+                  }
+                });
+              });
+            }
+            else if (updatesCalled === 0) {
+              resolve(true);
+            }
           });
         });
       });
@@ -716,7 +944,7 @@ export default class db {
   }
 
   updateMainAuthorData(jsonGraphArg) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const updatesCalled = Object.keys(jsonGraphArg).length;
       let updatesReturned = 0;
       _.forEach(jsonGraphArg, (authorObject, slug) => {
@@ -732,16 +960,16 @@ export default class db {
           }
         })
         .catch((e) => {
-          reject(e);
+          throw e;
         });
       });
     });
   }
 
   createAuthor(authorObject) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       database('authors').insert(authorObject)
-      .then((data) => {
+      .then(() => {
         // Insert statements should throw errors themselves
         // if they fail
         resolve(true);
@@ -754,7 +982,7 @@ export default class db {
     // This is simply to make our job easier, and update statements
     // don't have to be exceedingly efficient either as they are called
     // very rarely, and the user expects a wait time on saving changes
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       database.select('id', 'published_at')
       .from('issues')
       .where('issue_order', '=', issueNumber)
@@ -905,7 +1133,7 @@ export default class db {
                     }
                     data.picks.push({
                       path: ['issuesByNumber', issueNumber, 'picks', index],
-                      value: {$type: "ref", value: ['articlesBySlug', article.slug]}
+                      value: {$type: "ref", value: ['articlesBySlug', article.slug]},
                     });
                   });
 
@@ -924,9 +1152,9 @@ export default class db {
                           slug: category.slug,
                           articles: [{
                             path: ['issuesByNumber', issueNumber, 'categories', category.index, 'articles', order],
-                            value: {$type: "ref", value: ['articlesBySlug', article.slug]}
+                            value: {$type: "ref", value: ['articlesBySlug', article.slug]},
                           }],
-                        }
+                        },
                       };
                     }
                     // index > 0
@@ -939,7 +1167,7 @@ export default class db {
                         slug: category.slug,
                         articles: [{
                           path: ['issuesByNumber', issueNumber, 'categories', category.index, 'articles', order],
-                          value: {$type: "ref", value: ['articlesBySlug', article.slug]}
+                          value: {$type: "ref", value: ['articlesBySlug', article.slug]},
                         }],
                       };
                     }
@@ -948,7 +1176,7 @@ export default class db {
                       const category = slugToObject[article.category];
                       data.categories[category.index].articles.push({
                         path: ['issuesByNumber', issueNumber, 'categories', category.index, 'articles', order],
-                        value: {$type: "ref", value: ['articlesBySlug', article.slug]}
+                        value: {$type: "ref", value: ['articlesBySlug', article.slug]},
                       });
                     }
                     // Increment the order
@@ -992,18 +1220,18 @@ export default class db {
   }
 
   updateIssueData(jsonGraphArg) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const issueNumber = Object.keys(jsonGraphArg.issuesByNumber)[0];
       const value = jsonGraphArg.issuesByNumber[issueNumber].published_at;
       database('issues').where('issue_order', '=', issueNumber)
-      .update('published_at', value).then((data) => {
+      .update('published_at', value).then(() => {
         resolve(true);
       })
     })
   }
 
   publishIssue(issueId) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // We first find all unpublished articles in the issue
       database.select('posts.id', 'slug', 'gazelle_published_at')
       .from('posts')
@@ -1047,7 +1275,7 @@ export default class db {
   }
 
   addIssue(issueObject) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const insertObject = {};
       _.forEach(issueObject, (value, key) => {
         insertObject[mapGhostNames(key)] = value;
@@ -1059,7 +1287,7 @@ export default class db {
   }
 
   updateIssueCategories(issueNumber, idArray) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       // First delete old categories order and get issue id
       database.select('id')
       .from('issues')
@@ -1092,5 +1320,25 @@ export default class db {
         });
       })
     })
+  }
+
+  addView(slug) {
+    return new Promise((resolve) => {
+      database.select('posts.id', 'views')
+      .from('posts')
+      .innerJoin('posts_meta', 'posts_meta.id', '=', 'posts.id')
+      .where('slug', '=', slug)
+      .then((rows) => {
+        const row = rows[0];
+        const views = row.views+1;
+        const id = row.id;
+        database('posts_meta')
+        .where('id', '=', id)
+        .update('views', views)
+        .then(() => {
+          resolve(views);
+        })
+      })
+    });
   }
 }

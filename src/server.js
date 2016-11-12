@@ -8,7 +8,6 @@ import { renderToString } from 'react-dom/server';
 import { match, RouterContext } from 'react-router';
 import sourcemap from 'source-map-support';
 import mainRoutes from 'lib/routes';
-import editorRoutes from 'lib/editor-routes';
 import FalcorController from 'lib/falcor/FalcorController';
 import FalcorRouter from 'lib/falcor/FalcorRouter';
 import { injectModelCreateElement } from 'lib/falcor/falcorUtils';
@@ -20,7 +19,7 @@ import bodyParser from 'body-parser';
 import { exec } from 'child_process';
 
 process.env.NODE_ENV === "production" ?
-  console.log("PRODUCTION BUILD") : process.env.NODE_ENV === "beta" ? console.log("BETA BUILD") : console.log("DEVELOPMENT BUILD");
+  console.log("PRODUCTION BUILD") : process.env.NODE_ENV === "beta" ? console.log("BETA BUILD") : console.log("DEVELOPMENT BUILD"); // eslint-disable-line no-console
 
 // Allow node to use sourcemaps
 
@@ -105,6 +104,15 @@ const serverModel = new falcor.Model({
   collectRatio: 0.75,
 }).batch();
 
+// reset cache trending data every minute
+// so we're sure that we always have up to date
+// trending data available
+function resetTrending() {
+  serverModel.invalidate(['trending']);
+}
+
+setInterval(resetTrending, 60*1000);
+
 // Asynchronously render this application
 // Returns a promise
 const renderApp = (renderProps) => {
@@ -178,6 +186,9 @@ const renderApp = (renderProps) => {
 
 const mainApp = express();
 
+// For post requests to go through correctly
+mainApp.use(bodyParser.urlencoded({extended: true}));
+
 mainApp.use("/model.json", FalcorServer.dataSourceRoute(() => {
   return serverModel.asDataSource()
 }));
@@ -193,7 +204,7 @@ mainApp.use(compression());
 if (process.env.NODE_ENV === "beta") {
   mainApp.get('/login', (req, res) => {
     if (process.env.NODE_ENV !== "production") {
-      console.log("GOT REQUEST");
+      console.log("GOT REQUEST"); // eslint-disable-line no-console
     }
     match({ routes: mainRoutes, location: req.url },
       (error, redirectLocation, renderProps) => {
@@ -206,8 +217,8 @@ if (process.env.NODE_ENV === "beta") {
             res.status(200).send(html);
           }).catch((err) => {
             if (process.env.NODE_ENV !== "production") {
-              console.error('Failed to render: ', req.url);
-              console.error(err.stack || err)
+              console.error('Failed to render: ', req.url); // eslint-disable-line no-console
+              console.error(err.stack || err) // eslint-disable-line no-console
               res.status(500).send(err.stack || err);
             }
             else {
@@ -229,7 +240,7 @@ if (process.env.NODE_ENV === "beta") {
 else {
   mainApp.get('*', (req, res) => {
     if (process.env.NODE_ENV !== "production") {
-      console.log("GOT REQUEST");
+      console.log("GOT REQUEST"); // eslint-disable-line no-console
     }
     match({ routes: mainRoutes, location: req.url },
       (error, redirectLocation, renderProps) => {
@@ -242,8 +253,8 @@ else {
             res.status(200).send(html);
           }).catch((err) => {
             if (process.env.NODE_ENV !== "production") {
-              console.error('Failed to render: ', req.url);
-              console.error(err.stack || err)
+              console.error('Failed to render: ', req.url); // eslint-disable-line no-console
+              console.error(err.stack || err) // eslint-disable-line no-console
               res.status(500).send(err.stack || err);
             }
             else {
@@ -267,10 +278,10 @@ else {
 //    Production build: run `sudo npm start`
 mainApp.listen(process.env.MAIN_PORT ? process.env.MAIN_PORT : 3000, err => {
   if (err) {
-    console.error(err);
+    console.error(err); // eslint-disable-line no-console
     return;
   }
-  console.log('The Gazelle Website started on port ' + (process.env.MAIN_PORT ? process.env.MAIN_PORT : 3000));
+  console.log('The Gazelle Website started on port ' + (process.env.MAIN_PORT ? process.env.MAIN_PORT : 3000)); // eslint-disable-line no-console
 });
 
 
@@ -283,7 +294,7 @@ const editorTools = express();
 // This is for parsing post requests
 editorTools.use(bodyParser.urlencoded({extended: true, limit: "50mb"}));
 // For connecting the client to our falcor server
-editorTools.use("/model.json", FalcorServer.dataSourceRoute((req, res) => {
+editorTools.use("/model.json", FalcorServer.dataSourceRoute(() => {
   return serverModel.asDataSource()
 }));
 // serving static files
@@ -333,14 +344,14 @@ editorTools.get('/restartserver', (req, res) => {
     exec(PATH_NAME, (err, stdout, stderr) => {
       if (err) {
         if (process.env.NODE_ENV !== "production") {
-          console.error(err);
+          console.error(err); // eslint-disable-line no-console
         }
         res.status(500).send('error');
         return;
       }
       if (process.env.NODE_ENV !== "production") {
-        console.log(stdout);
-        console.log(stderr);
+        console.log(stdout); // eslint-disable-line no-console
+        console.log(stderr); // eslint-disable-line no-console
       }
       res.status(200).send('restarted');
     });
@@ -369,9 +380,9 @@ else {
 
 editorTools.listen(process.env.EDITOR_PORT ? process.env.EDITOR_PORT : 4000, err => {
   if (err) {
-    console.error(err);
+    console.error(err); // eslint-disable-line no-console
     return;
   }
 
-  console.log('Editor tools server started on port', process.env.EDITOR_PORT ? process.env.EDITOR_PORT : 4000);
+  console.log('Editor tools server started on port', process.env.EDITOR_PORT ? process.env.EDITOR_PORT : 4000); // eslint-disable-line no-console
 });

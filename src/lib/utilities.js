@@ -1,5 +1,4 @@
 import React from "react";
-import BaseComponent from "lib/BaseComponent"
 
 // TODO: Add Jest Testing
 export function debounce (func, timeout, addInstantFlag = false) {
@@ -77,7 +76,7 @@ export function mapLegacyIssueSlugsToIssueNumber(slug) {
 // Modified slightly from ghost/core/server/models/base.js
 export function slugifyPost(postSlug) {
   // Remove URL reserved chars: `:/?#[]@!$&'()*+,;=` as well as `\%<>|^~£"`
-  slug = postSlug.replace(/[:\/\?#\[\]@!$&'()*+,;=\\%<>\|\^~£"]/g, '')
+  let slug = postSlug.replace(/[:\/\?#\[\]@!$&'()*+,;=\\%<>\|\^~£"]/g, '')
               .replace(/(\s|\.)/g, '-')
               .replace(/-+/g, '-')
               .toLowerCase();
@@ -153,4 +152,60 @@ export function formatDateTime(date) {
   dateTimeString += ss.toString();
 
   return dateTimeString;
+}
+
+// this currently only supports parsing links
+export function parseMarkdown(str) {
+  // parse links
+  const exp = /\[(.*?)\]\((.*?)\)/g;
+  let result;
+  const output = [];
+  let end = 0;
+  while (result = exp.exec(str)) { // eslint-disable-line no-cond-assign
+    output.push(str.substring(end, result.index));
+    output.push(<a href={result[2]} key={result[1] + '-' + result[2]}>{result[1]}</a>);
+    end = exp.lastIndex;
+  }
+  output.push(str.substring(end));
+  return output;
+}
+
+// this currently only supports parsing links
+export function markdownLength(str) {
+  const array = parseMarkdown(str);
+  let length = 0;
+  array.forEach((element) => {
+    if ((typeof element) === "string") {
+      length += element.length;
+    }
+    else {
+      // assume it is a link
+      length += element.props.children.length;
+    }
+  });
+  return length;
+}
+
+const H1PRIME = 4189793;
+const H2PRIME = 3296731;
+const BIG_PRIME = 5003943032159437;
+
+export function hash(password) {
+  let num = password.charCodeAt(0);
+  for (let i = 1; i < password.length; i++) {
+    num = ((num*256)%BIG_PRIME + password.charCodeAt(i))%BIG_PRIME;
+  }
+  const hash = ((num % H1PRIME) + 5*(num % H2PRIME) + 1 + 25)%BIG_PRIME;
+  return hash;
+}
+
+// For tracking the articles visited in that particular session
+// so we at least don't count views more than once per session
+const viewed = {};
+export function viewArticle(slug) {
+  viewed[slug] = true;
+}
+
+export function isArticleViewed(slug) {
+  return viewed[slug] === true;
 }
